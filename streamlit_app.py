@@ -372,3 +372,291 @@ def main():
                 )
                 st.metric(
                     "Equal Weight Volatility",
+                    f"{equal_stats['Annual Volatility']:.2%}",
+                    help="Annualized volatility with equal weights"
+                )
+                st.metric(
+                    "Equal Weight Sharpe",
+                    f"{equal_stats['Sharpe Ratio']:.3f}",
+                    help="Risk-adjusted return measure"
+                )
+            
+            with col2:
+                st.metric(
+                    "Optimized Return",
+                    f"{optimal_stats['Annual Return']:.2%}",
+                    f"{optimal_stats['Annual Return'] - equal_stats['Annual Return']:.2%}"
+                )
+                st.metric(
+                    "Optimized Volatility",
+                    f"{optimal_stats['Annual Volatility']:.2%}",
+                    f"{optimal_stats['Annual Volatility'] - equal_stats['Annual Volatility']:.2%}"
+                )
+                st.metric(
+                    "Optimized Sharpe",
+                    f"{optimal_stats['Sharpe Ratio']:.3f}",
+                    f"{optimal_stats['Sharpe Ratio'] - equal_stats['Sharpe Ratio']:.3f}"
+                )
+            
+            with col3:
+                improvement = (optimal_stats['Sharpe Ratio'] - equal_stats['Sharpe Ratio']) / equal_stats['Sharpe Ratio'] * 100
+                st.metric(
+                    "Sharpe Improvement",
+                    f"{improvement:.1f}%",
+                    help="Percentage improvement in risk-adjusted returns"
+                )
+                
+                # Calculate potential value improvement
+                potential_value = initial_investment * (1 + optimal_stats['Annual Return'])
+                equal_value = initial_investment * (1 + equal_stats['Annual Return'])
+                value_diff = potential_value - equal_value
+                
+                st.metric(
+                    "Annual Value Gain",
+                    f"${value_diff:,.0f}",
+                    help="Additional value from optimization"
+                )
+            
+            st.plotly_chart(
+                plot_risk_return_scatter(returns, equal_weights, optimal_weights, selected_stocks),
+                use_container_width=True
+            )
+        
+        with tab3:
+            st.subheader("Portfolio Optimization Results")
+            
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                st.plotly_chart(
+                    plot_portfolio_composition(optimal_weights, selected_stocks),
+                    use_container_width=True
+                )
+            
+            with col2:
+                st.subheader("Optimal Weights")
+                weights_df = pd.DataFrame({
+                    'Stock': selected_stocks,
+                    'Weight': optimal_weights,
+                    'Weight %': optimal_weights * 100
+                }).sort_values('Weight', ascending=False)
+                
+                st.dataframe(
+                    weights_df.style.format({
+                        'Weight': '{:.4f}',
+                        'Weight %': '{:.2f}%'
+                    }),
+                    use_container_width=True
+                )
+                
+                # Investment allocation
+                st.subheader(f"Investment Allocation (${initial_investment:,})")
+                allocation_df = weights_df.copy()
+                allocation_df['Amount'] = allocation_df['Weight'] * initial_investment
+                allocation_df['Shares'] = 0  # Would need current prices to calculate
+                
+                st.dataframe(
+                    allocation_df[['Stock', 'Amount', 'Weight %']].style.format({
+                        'Amount': '${:,.0f}',
+                        'Weight %': '{:.2f}%'
+                    }),
+                    use_container_width=True
+                )
+        
+        with tab4:
+            st.subheader("Risk Analysis")
+            
+            # Calculate risk metrics for both portfolios
+            equal_portfolio_returns = returns @ equal_weights
+            optimal_portfolio_returns = returns @ optimal_weights
+            
+            equal_var_95, equal_cvar_95 = calculate_var_cvar(equal_portfolio_returns, 0.05)
+            optimal_var_95, optimal_cvar_95 = calculate_var_cvar(optimal_portfolio_returns, 0.05)
+            
+            equal_max_dd = calculate_maximum_drawdown(equal_portfolio_returns)
+            optimal_max_dd = calculate_maximum_drawdown(optimal_portfolio_returns)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Equal Weight Portfolio")
+                st.metric("VaR (95%)", f"{equal_var_95:.2%}", help="Daily Value at Risk")
+                st.metric("CVaR (95%)", f"{equal_cvar_95:.2%}", help="Conditional Value at Risk")
+                st.metric("Max Drawdown", f"{equal_max_dd:.2%}", help="Maximum historical loss")
+                
+                # Annual risk metrics
+                annual_var = equal_var_95 * np.sqrt(252)
+                annual_cvar = equal_cvar_95 * np.sqrt(252)
+                st.metric("Annual VaR (95%)", f"{annual_var:.2%}")
+                st.metric("Annual CVaR (95%)", f"{annual_cvar:.2%}")
+            
+            with col2:
+                st.subheader("Optimized Portfolio")
+                st.metric(
+                    "VaR (95%)", 
+                    f"{optimal_var_95:.2%}",
+                    f"{optimal_var_95 - equal_var_95:.2%}"
+                )
+                st.metric(
+                    "CVaR (95%)", 
+                    f"{optimal_cvar_95:.2%}",
+                    f"{optimal_cvar_95 - equal_cvar_95:.2%}"
+                )
+                st.metric(
+                    "Max Drawdown", 
+                    f"{optimal_max_dd:.2%}",
+                    f"{optimal_max_dd - equal_max_dd:.2%}"
+                )
+                
+                # Annual risk metrics
+                annual_var_opt = optimal_var_95 * np.sqrt(252)
+                annual_cvar_opt = optimal_cvar_95 * np.sqrt(252)
+                st.metric("Annual VaR (95%)", f"{annual_var_opt:.2%}")
+                st.metric("Annual CVaR (95%)", f"{annual_cvar_opt:.2%}")
+            
+            # Risk decomposition
+            st.subheader("Risk Decomposition")
+            individual_vols = returns.std() * np.sqrt(252)
+            risk_contrib = pd.DataFrame({
+                'Stock': selected_stocks,
+                'Individual Volatility': individual_vols,
+                'Weight in Portfolio': optimal_weights,
+                'Risk Contribution': individual_vols * optimal_weights
+            }).sort_values('Risk Contribution', ascending=False)
+            
+            st.dataframe(
+                risk_contrib.style.format({
+                    'Individual Volatility': '{:.2%}',
+                    'Weight in Portfolio': '{:.2%}',
+                    'Risk Contribution': '{:.4f}'
+                }),
+                use_container_width=True
+            )
+        
+        with tab5:
+            st.subheader("Monte Carlo Simulation")
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Run Monte Carlo simulation
+                mc_results = monte_carlo_simulation(
+                    returns, optimal_weights, initial_investment, 252, 1000
+                )
+                
+                st.plotly_chart(
+                    plot_monte_carlo_results(mc_results, initial_investment),
+                    use_container_width=True
+                )
+            
+            with col2:
+                st.subheader("Simulation Statistics")
+                
+                mean_value = np.mean(mc_results)
+                median_value = np.median(mc_results)
+                std_value = np.std(mc_results)
+                
+                st.metric("Mean Final Value", f"${mean_value:,.0f}")
+                st.metric("Median Final Value", f"${median_value:,.0f}")
+                st.metric("Standard Deviation", f"${std_value:,.0f}")
+                
+                # Probability metrics
+                prob_loss = np.mean(mc_results < initial_investment) * 100
+                prob_double = np.mean(mc_results > initial_investment * 2) * 100
+                
+                st.metric("Probability of Loss", f"{prob_loss:.1f}%")
+                st.metric("Probability of Doubling", f"{prob_double:.1f}%")
+                
+                # Percentile analysis
+                percentiles = [5, 25, 75, 95]
+                st.subheader("Value Percentiles")
+                for p in percentiles:
+                    value = np.percentile(mc_results, p)
+                    st.metric(f"{p}th Percentile", f"${value:,.0f}")
+        
+        # Download section
+        st.subheader("📥 Download Results")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Portfolio weights CSV
+            weights_csv = weights_df.to_csv(index=False)
+            st.download_button(
+                label="Download Portfolio Weights",
+                data=weights_csv,
+                file_name="portfolio_weights.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            # Historical data CSV
+            price_csv = price_data.to_csv()
+            st.download_button(
+                label="Download Price Data",
+                data=price_csv,
+                file_name="historical_prices.csv",
+                mime="text/csv"
+            )
+        
+        with col3:
+            # Monte Carlo results CSV
+            mc_df = pd.DataFrame({'Simulation_Result': mc_results})
+            mc_csv = mc_df.to_csv(index=False)
+            st.download_button(
+                label="Download MC Results",
+                data=mc_csv,
+                file_name="monte_carlo_results.csv",
+                mime="text/csv"
+            )
+    
+    else:
+        # Landing page content
+        st.markdown("""
+        ## Welcome to Portfolio Risk Analytics! 🚀
+        
+        This dashboard helps you analyze and optimize your investment portfolio using advanced financial techniques:
+        
+        ### 🔍 What You Can Do:
+        - **Portfolio Optimization**: Find the optimal asset allocation using Modern Portfolio Theory
+        - **Risk Analysis**: Calculate VaR, CVaR, and maximum drawdown
+        - **Performance Comparison**: Compare equal-weight vs optimized portfolios
+        - **Monte Carlo Simulation**: Project future portfolio performance
+        - **Correlation Analysis**: Understand asset relationships
+        
+        ### 📊 Key Features:
+        - Interactive charts and visualizations
+        - Real-time stock data from Yahoo Finance
+        - Professional risk metrics
+        - Downloadable results
+        
+        ### 🛠️ How to Use:
+        1. Select 3-10 stocks from the sidebar
+        2. Choose your analysis time period
+        3. Set your initial investment amount
+        4. Click "Run Analysis" to start
+        
+        **Ready to optimize your portfolio? Configure your settings in the sidebar and click "Run Analysis"!**
+        """)
+        
+        # Sample analysis preview
+        st.subheader("📈 Sample Analysis Preview")
+        
+        sample_data = {
+            'Metric': [
+                'Annual Return',
+                'Annual Volatility', 
+                'Sharpe Ratio',
+                'Maximum Drawdown',
+                'VaR (95%)'
+            ],
+            'Equal Weight': ['12.5%', '18.2%', '0.687', '-15.3%', '-2.1%'],
+            'Optimized': ['14.8%', '16.9%', '0.876', '-12.1%', '-1.8%'],
+            'Improvement': ['+2.3%', '-1.3%', '+27.5%', '+3.2%', '+0.3%']
+        }
+        
+        sample_df = pd.DataFrame(sample_data)
+        st.table(sample_df)
+
+if __name__ == "__main__":
+    main()
